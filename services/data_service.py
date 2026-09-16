@@ -498,6 +498,51 @@ def load_excel_sheets(file):
         raise ValueError(
             f"Could not read Excel workbook: {e}"
         )
+
+
+def validate_workbook_sheets(workbook_sheets):
+    """Summarize every normalized sheet before it is persisted."""
+    if not isinstance(workbook_sheets, dict) or not workbook_sheets:
+        raise ValueError("No usable workbook sheets were supplied.")
+
+    summaries = []
+    for sheet_name, dataframe in workbook_sheets.items():
+        errors = []
+        warnings = []
+        if not isinstance(dataframe, pd.DataFrame) or dataframe.empty:
+            errors.append("Sheet is empty.")
+            row_count = 0
+            column_count = 0
+            columns = []
+        else:
+            row_count = len(dataframe)
+            column_count = len(dataframe.columns)
+            columns = [str(column) for column in dataframe.columns]
+            if dataframe.duplicated().any():
+                warnings.append(f"{int(dataframe.duplicated().sum())} duplicate rows detected.")
+            if dataframe.isna().any().any():
+                warnings.append(f"{int(dataframe.isna().sum().sum())} blank values detected.")
+            normalized_columns = {str(column).strip().lower() for column in dataframe.columns}
+            date_like = any(
+                column in normalized_columns
+                for column in ("date", "datetime", "timestamp", "time", "log_date")
+            )
+            if not date_like and not any("/" in column for column in normalized_columns):
+                warnings.append("No standard date or timestamp column was detected.")
+            numeric_count = len(dataframe.select_dtypes(include="number").columns)
+            if numeric_count == 0:
+                warnings.append("No numeric columns were detected.")
+
+        status = "ERROR" if errors else "WARNING" if warnings else "VALID"
+        summaries.append({
+            "Sheet": str(sheet_name),
+            "Rows": row_count,
+            "Columns": column_count,
+            "Detected Columns": ", ".join(columns[:12]),
+            "Status": status,
+            "Validation": "; ".join(errors + warnings) or "Ready for import",
+        })
+    return pd.DataFrame(summaries)
     # =========================================================
 # SAVE COMPLETE EXCEL WORKBOOK
 # =========================================================
@@ -599,36 +644,36 @@ def load_saved_workbook(filename):
 
     for sheet_name, dataframe in workbook.items():
 
-     if dataframe is None:
-        continue
+        if dataframe is None:
+            continue
 
-     if dataframe.empty:
-        continue
+        if dataframe.empty:
+            continue
 
-    dataframe = dataframe.copy()
+        dataframe = dataframe.copy()
 
-    # Remove Excel-generated unnamed columns
-    dataframe = dataframe.loc[
-        :,
-        ~dataframe.columns.astype(str)
-        .str.lower()
-        .str.startswith("unnamed")
-    ]
+        # Remove Excel-generated unnamed columns
+        dataframe = dataframe.loc[
+            :,
+            ~dataframe.columns.astype(str)
+            .str.lower()
+            .str.startswith("unnamed")
+        ]
 
-    # Convert mixed object columns to strings where needed
-    for column in dataframe.columns:
+        # Convert mixed object columns to strings where needed
+        for column in dataframe.columns:
 
-        if dataframe[column].dtype == "object":
+            if dataframe[column].dtype == "object":
 
-            dataframe[column] = dataframe[column].map(
-                lambda value:
-                str(value).strip()
-                if pd.notna(value)
-                else None
-            )
+                dataframe[column] = dataframe[column].map(
+                    lambda value:
+                    str(value).strip()
+                    if pd.notna(value)
+                    else None
+                )
 
-    cleaned_workbook[sheet_name] = clean_data(
-        dataframe
-    )
+        cleaned_workbook[sheet_name] = clean_data(
+            dataframe
+        )
 
     return cleaned_workbook

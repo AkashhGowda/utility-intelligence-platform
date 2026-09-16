@@ -1,5 +1,8 @@
 streamlit
+altair
 pandas
 numpy
 openpyxl
 reportlab
+psycopg2-binary
+python-dotenv
