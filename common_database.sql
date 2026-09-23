@@ -2,8 +2,6 @@
 -- PostgreSQL database dump
 --
 
-\restrict 0Eq4RKaczXwZPBGBm4dXNQS6clOR7Cu0Ua1UpXLvKoqtxiins4fN5ejAyoQeRrV
-
 -- Dumped from database version 18.6
 -- Dumped by pg_dump version 18.6
 
@@ -82,9 +80,8 @@ ALTER TABLE common.production_line OWNER TO postgres;
 -- Data for Name: location; Type: TABLE DATA; Schema: common; Owner: postgres
 --
 
-COPY common.location (location_id, location_name) FROM stdin;
-1	Bangalore
-\.
+INSERT INTO common.location (location_id, location_name)
+VALUES (1, 'Bangalore');
 
 
 --
@@ -93,9 +90,8 @@ COPY common.location (location_id, location_name) FROM stdin;
 -- Data for Name: plant; Type: TABLE DATA; Schema: common; Owner: postgres
 --
 
-COPY common.plant (plant_id, plant_name, location_id) FROM stdin;
-1	TPREL	1
-\.
+INSERT INTO common.plant (plant_id, plant_name, location_id)
+VALUES (1, 'TPREL', 1);
 
 
 --
@@ -104,11 +100,11 @@ COPY common.plant (plant_id, plant_name, location_id) FROM stdin;
 -- Data for Name: production_line; Type: TABLE DATA; Schema: common; Owner: postgres
 --
 
-COPY common.production_line (production_line_id, production_line_name, plant_id) FROM stdin;
-1	Vega	1
-2	Galaxy	1
-3	Hexa	1
-\.
+INSERT INTO common.production_line (production_line_id, production_line_name, plant_id)
+VALUES
+    (1, 'Vega', 1),
+    (2, 'Galaxy', 1),
+    (3, 'Hexa', 1);
 
 
 --
@@ -162,7 +158,6 @@ ALTER TABLE ONLY common.production_line
 -- PostgreSQL database dump complete
 --
 
-\unrestrict 0Eq4RKaczXwZPBGBm4dXNQS6clOR7Cu0Ua1UpXLvKoqtxiins4fN5ejAyoQeRrV
 
 -- Application schema required by the current login and admin services.
 SET search_path = public;
