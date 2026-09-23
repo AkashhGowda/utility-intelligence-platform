@@ -34,7 +34,7 @@ DB_PASSWORD=...
 
 For Streamlit Community Cloud, add the variables under **Settings > Secrets**. The app entrypoint is `app.py`, and dependencies are listed in `requirements.txt`.
 
-Important: a deployed app cannot connect to PostgreSQL running on your laptop. Use a hosted PostgreSQL database and paste its connection values into Streamlit Secrets. The default `127.0.0.1` connection is intended only for local development.
+Important: a deployed app cannot connect to PostgreSQL or Ollama running on your laptop. Use hosted services and paste their connection values into Streamlit Secrets. The default `127.0.0.1` and `localhost:11434` endpoints are intended only for local development.
 
 ## Data flow
 

@@ -10,20 +10,30 @@ from services.config_service import is_enabled
 logger = logging.getLogger(__name__)
 
 
-OLLAMA_BASE_URL = os.getenv(
+def _setting(name, default=None):
+    value = os.getenv(name)
+    if value:
+        return value
+    try:
+        import streamlit as st
+        return st.secrets.get(name, default)
+    except Exception:
+        return default
+
+
+OLLAMA_BASE_URL = _setting(
     "OLLAMA_BASE_URL",
     "http://localhost:11434",
 ).rstrip("/")
 OLLAMA_URL = f"{OLLAMA_BASE_URL}/api/generate"
 OLLAMA_TAGS_URL = f"{OLLAMA_BASE_URL}/api/tags"
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:7b")
+OLLAMA_MODEL = _setting("OLLAMA_MODEL", "qwen2.5:7b")
 # Keep the interactive chat responsive. Deterministic data questions do not use Ollama;
 # this is only the bounded fallback for questions that need natural-language reasoning.
 OLLAMA_TIMEOUT = min(float(os.getenv("OLLAMA_TIMEOUT", "3.8")), 3.8)
 OLLAMA_OFFLINE_MESSAGE = (
-    "The local AI service is unavailable. "
-    "Make sure Ollama is running and listening at "
-    "http://localhost:11434."
+    f"The configured AI service is unavailable at {OLLAMA_BASE_URL}. "
+    "Set OLLAMA_BASE_URL to a reachable hosted Ollama endpoint for cloud reasoning."
 )
 OLLAMA_MODEL_MESSAGE = (
     f"Ollama is running, but the model `{OLLAMA_MODEL}` is not available. "
@@ -81,7 +91,7 @@ def _check_ollama_health():
 
 
 def get_ai_status():
-    """Return the current status of the local AI service for the UI."""
+    """Return the current status of the configured AI service for the UI."""
     try:
         _check_ollama_health()
         return {
