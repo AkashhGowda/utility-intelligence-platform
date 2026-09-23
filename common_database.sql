@@ -24,7 +24,7 @@ SET row_security = off;
 -- Name: common; Type: SCHEMA; Schema: -; Owner: postgres
 --
 
-CREATE SCHEMA common;
+CREATE SCHEMA IF NOT EXISTS common;
 
 
 ALTER SCHEMA common OWNER TO postgres;
@@ -38,7 +38,7 @@ SET default_table_access_method = heap;
 -- Name: location; Type: TABLE; Schema: common; Owner: postgres
 --
 
-CREATE TABLE common.location (
+CREATE TABLE IF NOT EXISTS common.location (
     location_id integer NOT NULL,
     location_name character varying(100)
 );
@@ -51,7 +51,7 @@ ALTER TABLE common.location OWNER TO postgres;
 -- Name: plant; Type: TABLE; Schema: common; Owner: postgres
 --
 
-CREATE TABLE common.plant (
+CREATE TABLE IF NOT EXISTS common.plant (
     plant_id integer NOT NULL,
     plant_name character varying(100),
     location_id integer
@@ -65,7 +65,7 @@ ALTER TABLE common.plant OWNER TO postgres;
 -- Name: production_line; Type: TABLE; Schema: common; Owner: postgres
 --
 
-CREATE TABLE common.production_line (
+CREATE TABLE IF NOT EXISTS common.production_line (
     production_line_id integer NOT NULL,
     production_line_name character varying(100),
     plant_id integer
@@ -81,7 +81,8 @@ ALTER TABLE common.production_line OWNER TO postgres;
 --
 
 INSERT INTO common.location (location_id, location_name)
-VALUES (1, 'Bangalore');
+VALUES (1, 'Bangalore')
+ON CONFLICT (location_id) DO NOTHING;
 
 
 --
@@ -91,7 +92,8 @@ VALUES (1, 'Bangalore');
 --
 
 INSERT INTO common.plant (plant_id, plant_name, location_id)
-VALUES (1, 'TPREL', 1);
+VALUES (1, 'TPREL', 1)
+ON CONFLICT (plant_id) DO NOTHING;
 
 
 --
@@ -104,7 +106,8 @@ INSERT INTO common.production_line (production_line_id, production_line_name, pl
 VALUES
     (1, 'Vega', 1),
     (2, 'Galaxy', 1),
-    (3, 'Hexa', 1);
+    (3, 'Hexa', 1)
+ON CONFLICT (production_line_id) DO NOTHING;
 
 
 --
@@ -112,8 +115,17 @@ VALUES
 -- Name: location pk_location; Type: CONSTRAINT; Schema: common; Owner: postgres
 --
 
-ALTER TABLE ONLY common.location
-    ADD CONSTRAINT pk_location PRIMARY KEY (location_id);
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'pk_location'
+          AND conrelid = 'common.location'::regclass
+    ) THEN
+        ALTER TABLE ONLY common.location
+            ADD CONSTRAINT pk_location PRIMARY KEY (location_id);
+    END IF;
+END $$;
 
 
 --
@@ -121,8 +133,17 @@ ALTER TABLE ONLY common.location
 -- Name: plant pk_plant; Type: CONSTRAINT; Schema: common; Owner: postgres
 --
 
-ALTER TABLE ONLY common.plant
-    ADD CONSTRAINT pk_plant PRIMARY KEY (plant_id);
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'pk_plant'
+          AND conrelid = 'common.plant'::regclass
+    ) THEN
+        ALTER TABLE ONLY common.plant
+            ADD CONSTRAINT pk_plant PRIMARY KEY (plant_id);
+    END IF;
+END $$;
 
 
 --
@@ -130,8 +151,17 @@ ALTER TABLE ONLY common.plant
 -- Name: production_line pk_production_line; Type: CONSTRAINT; Schema: common; Owner: postgres
 --
 
-ALTER TABLE ONLY common.production_line
-    ADD CONSTRAINT pk_production_line PRIMARY KEY (production_line_id);
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'pk_production_line'
+          AND conrelid = 'common.production_line'::regclass
+    ) THEN
+        ALTER TABLE ONLY common.production_line
+            ADD CONSTRAINT pk_production_line PRIMARY KEY (production_line_id);
+    END IF;
+END $$;
 
 
 --
@@ -139,8 +169,17 @@ ALTER TABLE ONLY common.production_line
 -- Name: plant fk_plant_location; Type: FK CONSTRAINT; Schema: common; Owner: postgres
 --
 
-ALTER TABLE ONLY common.plant
-    ADD CONSTRAINT fk_plant_location FOREIGN KEY (location_id) REFERENCES common.location(location_id);
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'fk_plant_location'
+          AND conrelid = 'common.plant'::regclass
+    ) THEN
+        ALTER TABLE ONLY common.plant
+            ADD CONSTRAINT fk_plant_location FOREIGN KEY (location_id) REFERENCES common.location(location_id);
+    END IF;
+END $$;
 
 
 --
@@ -148,8 +187,17 @@ ALTER TABLE ONLY common.plant
 -- Name: production_line fk_production_line_plant; Type: FK CONSTRAINT; Schema: common; Owner: postgres
 --
 
-ALTER TABLE ONLY common.production_line
-    ADD CONSTRAINT fk_production_line_plant FOREIGN KEY (plant_id) REFERENCES common.plant(plant_id);
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'fk_production_line_plant'
+          AND conrelid = 'common.production_line'::regclass
+    ) THEN
+        ALTER TABLE ONLY common.production_line
+            ADD CONSTRAINT fk_production_line_plant FOREIGN KEY (plant_id) REFERENCES common.plant(plant_id);
+    END IF;
+END $$;
 
 
 -- Completed on 2026-09-10 12:11:30
