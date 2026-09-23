@@ -22,6 +22,13 @@ def get_connection():
     if database_url:
         return psycopg2.connect(database_url)
 
+    if not _setting("DB_HOST") and os.getenv("STREAMLIT_SHARING_MODE"):
+        raise RuntimeError(
+            "No hosted PostgreSQL configuration was found. Add DATABASE_URL "
+            "or DB_HOST, DB_PORT, DB_NAME, DB_USER, and DB_PASSWORD to the "
+            "Streamlit app secrets."
+        )
+
     return psycopg2.connect(
         host=_setting("DB_HOST", "127.0.0.1"),
         port=_setting("DB_PORT", "5432"),

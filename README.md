@@ -34,6 +34,8 @@ DB_PASSWORD=...
 
 For Streamlit Community Cloud, add the variables under **Settings > Secrets**. The app entrypoint is `app.py`, and dependencies are listed in `requirements.txt`.
 
+Important: a deployed app cannot connect to PostgreSQL running on your laptop. Use a hosted PostgreSQL database and paste its connection values into Streamlit Secrets. The default `127.0.0.1` connection is intended only for local development.
+
 ## Data flow
 
 `Data Upload` parses an Excel or CSV report and persists it to PostgreSQL. The Command Center, Energy, Solar, Transformer, Utilities, Environment, Electrical Quality, Alerts, Reports, and AI views read the persisted database-backed data.
