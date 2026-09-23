@@ -1,4 +1,5 @@
 import io
+import hashlib
 import os
 import pandas as pd
 import psycopg2
@@ -101,8 +102,8 @@ def create_tables(conn):
         CREATE TABLE IF NOT EXISTS solar_locations (
             location_id INTEGER PRIMARY KEY,
             location_name TEXT NOT NULL,
-            site_location TEXT DEFAULT 'Bangalore',
-            plant_name TEXT DEFAULT 'TPREL-Bangalore',
+            site_location TEXT DEFAULT '78, Hosur Rd, Suryanagar Phase I, Electronic City, Doddathoguru, Karnataka 560100',
+            plant_name TEXT DEFAULT 'TATA POWER SOLAR UNIT-1',
             line_name TEXT DEFAULT 'Vega',
             created_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             modified_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -118,8 +119,8 @@ def create_tables(conn):
             location_id INTEGER NOT NULL,
             log_date TEXT NOT NULL,
             generation_kwh REAL NOT NULL,
-            site_location TEXT DEFAULT 'Bangalore',
-            plant_name TEXT DEFAULT 'TPREL-Bangalore',
+            site_location TEXT DEFAULT '78, Hosur Rd, Suryanagar Phase I, Electronic City, Doddathoguru, Karnataka 560100',
+            plant_name TEXT DEFAULT 'TATA POWER SOLAR UNIT-1',
             line_name TEXT DEFAULT 'Vega',
 
             UNIQUE(location_id, log_date),
@@ -142,8 +143,8 @@ def create_tables(conn):
             kva REAL,
             current REAL,
             power_factor REAL,
-            site_location TEXT DEFAULT 'Bangalore',
-            plant_name TEXT DEFAULT 'TPREL-Bangalore',
+            site_location TEXT DEFAULT '78, Hosur Rd, Suryanagar Phase I, Electronic City, Doddathoguru, Karnataka 560100',
+            plant_name TEXT DEFAULT 'TATA POWER SOLAR UNIT-1',
             line_name TEXT DEFAULT 'Vega',
 
             UNIQUE(
@@ -157,14 +158,14 @@ def create_tables(conn):
         )
     """)
 
-    ensure_column(conn, "solar_locations", "site_location", "site_location TEXT DEFAULT 'Bangalore'")
-    ensure_column(conn, "solar_locations", "plant_name", "plant_name TEXT DEFAULT 'TPREL-Bangalore'")
+    ensure_column(conn, "solar_locations", "site_location", "site_location TEXT DEFAULT '78, Hosur Rd, Suryanagar Phase I, Electronic City, Doddathoguru, Karnataka 560100'")
+    ensure_column(conn, "solar_locations", "plant_name", "plant_name TEXT DEFAULT 'TATA POWER SOLAR UNIT-1'")
     ensure_column(conn, "solar_locations", "line_name", "line_name TEXT DEFAULT 'Vega'")
-    ensure_column(conn, "solar_daily_summary", "site_location", "site_location TEXT DEFAULT 'Bangalore'")
-    ensure_column(conn, "solar_daily_summary", "plant_name", "plant_name TEXT DEFAULT 'TPREL-Bangalore'")
+    ensure_column(conn, "solar_daily_summary", "site_location", "site_location TEXT DEFAULT '78, Hosur Rd, Suryanagar Phase I, Electronic City, Doddathoguru, Karnataka 560100'")
+    ensure_column(conn, "solar_daily_summary", "plant_name", "plant_name TEXT DEFAULT 'TATA POWER SOLAR UNIT-1'")
     ensure_column(conn, "solar_daily_summary", "line_name", "line_name TEXT DEFAULT 'Vega'")
-    ensure_column(conn, "solar_time_logs", "site_location", "site_location TEXT DEFAULT 'Bangalore'")
-    ensure_column(conn, "solar_time_logs", "plant_name", "plant_name TEXT DEFAULT 'TPREL-Bangalore'")
+    ensure_column(conn, "solar_time_logs", "site_location", "site_location TEXT DEFAULT '78, Hosur Rd, Suryanagar Phase I, Electronic City, Doddathoguru, Karnataka 560100'")
+    ensure_column(conn, "solar_time_logs", "plant_name", "plant_name TEXT DEFAULT 'TATA POWER SOLAR UNIT-1'")
     ensure_column(conn, "solar_time_logs", "line_name", "line_name TEXT DEFAULT 'Vega'")
     ensure_column(conn, "solar_time_logs", "kvah", "kvah REAL")
     ensure_column(conn, "solar_time_logs", "kw", "kw REAL")
@@ -172,14 +173,24 @@ def create_tables(conn):
     ensure_column(conn, "solar_time_logs", "current", "current REAL")
     ensure_column(conn, "solar_time_logs", "power_factor", "power_factor REAL")
 
+    default_site = "78, Hosur Rd, Suryanagar Phase I, Electronic City, Doddathoguru, Karnataka 560100"
+    default_plant = "TATA POWER SOLAR UNIT-1"
+    with conn.cursor() as cursor:
+        for table_name in ("solar_locations", "solar_daily_summary", "solar_time_logs"):
+            cursor.execute(
+                f"ALTER TABLE {table_name} ALTER COLUMN site_location SET DEFAULT %s, "
+                "ALTER COLUMN plant_name SET DEFAULT %s",
+                (default_site, default_plant),
+            )
     conn.commit()
+
     cursor.close()
 
 # ==========================================
 # INSERT LOCATIONS
 # ==========================================
 
-def insert_locations(conn, selected_location="Bangalore", selected_plant="TPREL-Bangalore", selected_line="Vega"):
+def insert_locations(conn, selected_location="78, Hosur Rd, Suryanagar Phase I, Electronic City, Doddathoguru, Karnataka 560100", selected_plant="TATA POWER SOLAR UNIT-1", selected_line="Vega"):
     cursor = conn.cursor()
 
     for sheet_name, location in SOLAR_LOCATIONS.items():
@@ -318,8 +329,8 @@ def process_sheet(
     excel_file,
     sheet_name,
     location_id,
-    selected_location="Bangalore",
-    selected_plant="TPREL-Bangalore",
+    selected_location="78, Hosur Rd, Suryanagar Phase I, Electronic City, Doddathoguru, Karnataka 560100",
+    selected_plant="TATA POWER SOLAR UNIT-1",
     selected_line="Vega",
 ):
     print("\n" + "=" * 80)
@@ -530,8 +541,8 @@ def update_daily_summary(
     conn,
     location_id,
     log_date,
-    selected_location="Bangalore",
-    selected_plant="TPREL-Bangalore",
+    selected_location="78, Hosur Rd, Suryanagar Phase I, Electronic City, Doddathoguru, Karnataka 560100",
+    selected_plant="TATA POWER SOLAR UNIT-1",
     selected_line="Vega",
 ):
     cursor = conn.cursor()
@@ -596,8 +607,8 @@ def update_daily_summary(
 
 def build_dashboard_snapshot(
     uploaded_file_name,
-    selected_location="Bangalore",
-    selected_plant="TPREL-Bangalore",
+    selected_location="78, Hosur Rd, Suryanagar Phase I, Electronic City, Doddathoguru, Karnataka 560100",
+    selected_plant="TATA POWER SOLAR UNIT-1",
     selected_line="Vega",
 ):
     """Build the Command Center snapshot from the just-ingested solar data."""
@@ -662,8 +673,8 @@ def build_dashboard_snapshot(
 
 def ingest_uploaded_file(
     uploaded_file,
-    selected_location="Bangalore",
-    selected_plant="TPREL-Bangalore",
+    selected_location="78, Hosur Rd, Suryanagar Phase I, Electronic City, Doddathoguru, Karnataka 560100",
+    selected_plant="TATA POWER SOLAR UNIT-1",
     selected_line="Vega",
 ):
     """Read a Streamlit upload and insert all solar sheets into PostgreSQL."""
@@ -754,10 +765,17 @@ def ingest_uploaded_file(
                         selected_line,
                     ),
                 )
-                conn.commit()
                 cursor.close()
                 update_daily_summary(conn, location_id, report_date, selected_location, selected_plant, selected_line)
                 total += 1
+            conn.commit()
+            snapshot = build_dashboard_snapshot(
+                name,
+                selected_location,
+                selected_plant,
+                selected_line,
+            )
+            replace_dashboard_snapshot(snapshot)
             return total
 
         excel = pd.ExcelFile(uploaded_file)
@@ -825,8 +843,8 @@ def ingest_uploaded_file(
 
 
 def render_excel_uploader(
-    selected_location="Bangalore",
-    selected_plant="TPREL-Bangalore",
+    selected_location="78, Hosur Rd, Suryanagar Phase I, Electronic City, Doddathoguru, Karnataka 560100",
+    selected_plant="TATA POWER SOLAR UNIT-1",
     selected_line="Vega",
 ):
     """Streamlit widget that uploads and inserts a solar Excel file."""
@@ -839,6 +857,14 @@ def render_excel_uploader(
 
     if uploaded_file is None:
         return None
+
+    payload = uploaded_file.getvalue()
+    upload_signature = hashlib.sha256(
+        f"{uploaded_file.name}:{selected_location}:{selected_plant}:{selected_line}:".encode("utf-8")
+        + payload
+    ).hexdigest()
+    if st.session_state.get("last_solar_upload_signature") == upload_signature:
+        return st.session_state.get("last_solar_upload_count", 0)
 
     try:
         total_records = ingest_uploaded_file(
@@ -862,6 +888,9 @@ def render_excel_uploader(
             f"({selected_plant}, {selected_location}) into PostgreSQL."
         )
         st.caption("Command Center dashboard refreshed from the latest upload.")
+        st.session_state["last_solar_upload_signature"] = upload_signature
+        st.session_state["last_solar_upload_count"] = total_records
+        st.rerun()
         return total_records
     except Exception as exc:
         st.error(f"Could not ingest the uploaded file: {exc}")

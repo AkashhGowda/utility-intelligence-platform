@@ -317,6 +317,169 @@ def deactivate_location(current_user: dict[str, Any], location_id: int) -> None:
     _set_location_active(current_user, location_id, False)
 
 
+def get_utilities() -> pd.DataFrame:
+    """Return configured utility assets for the current operational context."""
+    return _query_df(
+        """
+        SELECT u.utility_id AS id,
+               u.utility_code AS code,
+               u.utility_name AS name,
+               u.utility_type AS type,
+               u.unit,
+               p.plant_name AS plant,
+               l.location_name AS location,
+               u.is_active AS active,
+               u.created_at,
+               u.updated_at
+        FROM platform.utilities u
+        LEFT JOIN platform.plants p ON p.plant_id = u.plant_id
+        LEFT JOIN platform.locations l ON l.location_id = u.location_id
+        ORDER BY u.utility_name
+        """
+    )
+
+
+def add_utility(
+    current_user: dict[str, Any],
+    utility_code: str,
+    utility_name: str,
+    utility_type: str,
+    unit: str,
+    plant_id: int,
+    location_id: int,
+) -> int:
+    """Create a utility asset attached to a plant and location."""
+    _require_admin(current_user)
+    utility_code = str(utility_code or "").strip()
+    utility_name = str(utility_name or "").strip()
+    utility_type = str(utility_type or "").strip()
+    unit = str(unit or "").strip() or "unit"
+    plant_id = _as_int(plant_id, "plant")
+    location_id = _as_int(location_id, "location")
+    if not utility_code:
+        raise ValueError("Utility code is required.")
+    if not utility_name:
+        raise ValueError("Utility name is required.")
+    if not utility_type:
+        raise ValueError("Utility type is required.")
+
+    conn = get_connection()
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                """
+                INSERT INTO platform.utilities
+                    (utility_code, utility_name, utility_type, unit, plant_id, location_id, is_active)
+                VALUES (%s, %s, %s, %s, %s, %s, TRUE)
+                RETURNING utility_id
+                """,
+                (utility_code, utility_name, utility_type, unit, plant_id, location_id),
+            )
+            utility_id = int(cursor.fetchone()[0])
+        conn.commit()
+        return utility_id
+    except psycopg2.errors.UniqueViolation as exc:
+        conn.rollback()
+        raise ValueError("That utility code already exists.") from exc
+    except psycopg2.errors.ForeignKeyViolation as exc:
+        conn.rollback()
+        raise ValueError("The selected plant or location does not exist.") from exc
+    finally:
+        conn.close()
+
+
+def update_utility(
+    current_user: dict[str, Any],
+    utility_id: int,
+    utility_code: str,
+    utility_name: str,
+    utility_type: str,
+    unit: str,
+    plant_id: int,
+    location_id: int,
+) -> None:
+    """Update a utility asset without removing historical references."""
+    _require_admin(current_user)
+    utility_id = _as_int(utility_id, "utility")
+    utility_code = str(utility_code or "").strip()
+    utility_name = str(utility_name or "").strip()
+    utility_type = str(utility_type or "").strip()
+    unit = str(unit or "").strip() or "unit"
+    plant_id = _as_int(plant_id, "plant")
+    location_id = _as_int(location_id, "location")
+    if not utility_code:
+        raise ValueError("Utility code is required.")
+    if not utility_name:
+        raise ValueError("Utility name is required.")
+    if not utility_type:
+        raise ValueError("Utility type is required.")
+
+    conn = get_connection()
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                """
+                UPDATE platform.utilities
+                SET utility_code = %s,
+                    utility_name = %s,
+                    utility_type = %s,
+                    unit = %s,
+                    plant_id = %s,
+                    location_id = %s,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE utility_id = %s
+                """,
+                (utility_code, utility_name, utility_type, unit, plant_id, location_id, utility_id),
+            )
+            if cursor.rowcount != 1:
+                raise ValueError("Utility was not found.")
+        conn.commit()
+    except psycopg2.errors.UniqueViolation as exc:
+        conn.rollback()
+        raise ValueError("That utility code already exists.") from exc
+    except psycopg2.errors.ForeignKeyViolation as exc:
+        conn.rollback()
+        raise ValueError("The selected plant or location does not exist.") from exc
+    finally:
+        conn.close()
+
+
+def set_utility_active(current_user: dict[str, Any], utility_id: int, active: bool) -> None:
+    """Activate or deactivate a utility without deleting it."""
+    _require_admin(current_user)
+    utility_id = _as_int(utility_id, "utility")
+    conn = get_connection()
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                "UPDATE platform.utilities SET is_active = %s, updated_at = CURRENT_TIMESTAMP WHERE utility_id = %s",
+                (bool(active), utility_id),
+            )
+            if cursor.rowcount != 1:
+                raise ValueError("Utility was not found.")
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def delete_utility(current_user: dict[str, Any], utility_id: int) -> None:
+    """Delete a utility asset."""
+    _require_admin(current_user)
+    utility_id = _as_int(utility_id, "utility")
+    conn = get_connection()
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute("DELETE FROM platform.utilities WHERE utility_id = %s", (utility_id,))
+            if cursor.rowcount != 1:
+                raise ValueError("Utility was not found.")
+        conn.commit()
+    except psycopg2.Error:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
 def _as_int(value: Any, field_name: str) -> int:
     try:
         return int(value)
@@ -538,6 +701,7 @@ def get_admin_snapshot() -> dict[str, Any]:
     snapshot: dict[str, Any] = {
         "plants": pd.DataFrame(),
         "locations": pd.DataFrame(),
+        "utilities": pd.DataFrame(),
         "users": pd.DataFrame(),
         "user_types": pd.DataFrame(),
         "applications": pd.DataFrame(),
@@ -559,6 +723,22 @@ def get_admin_snapshot() -> dict[str, Any]:
             FROM platform.locations l
             LEFT JOIN platform.plants p ON p.plant_id = l.plant_id
             ORDER BY l.location_name
+        """,
+        "utilities": """
+            SELECT u.utility_id AS id,
+                   u.utility_code AS code,
+                   u.utility_name AS name,
+                   u.utility_type AS type,
+                   u.unit,
+                   p.plant_name AS plant,
+                   l.location_name AS location,
+                   u.is_active AS active,
+                   u.created_at,
+                   u.updated_at
+            FROM platform.utilities u
+            LEFT JOIN platform.plants p ON p.plant_id = u.plant_id
+            LEFT JOIN platform.locations l ON l.location_id = u.location_id
+            ORDER BY u.utility_name
         """,
         "users": """
              SELECT u.user_id AS id, u.employee_id, u.username, u.full_name AS name,

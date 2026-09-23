@@ -8,9 +8,11 @@ import streamlit as st
 from services.admin_service import (
     activate_location,
     add_location,
+    add_utility,
     create_user,
     database_is_online,
     deactivate_location,
+    delete_utility,
     get_admin_snapshot,
     get_platform_counts,
     get_settings,
@@ -23,14 +25,17 @@ from services.admin_service import (
     replace_user_applications,
     reset_user_password,
     set_user_active,
+    set_utility_active,
     update_user,
     update_location,
+    update_utility,
 )
 
 
 ADMIN_PAGES = [
     "Overview",
     "Manage Locations",
+    "Manage Utilities",
     "Manage Users",
     "Applications & Access",
     "Data Sources",
@@ -349,6 +354,172 @@ def _render_locations(snapshot: dict) -> None:
                     st.error(str(exc))
                 except Exception:
                     st.error("The location status could not be changed because of a database error.")
+
+
+def _render_utilities(snapshot: dict) -> None:
+    st.markdown("### Manage Utilities")
+    st.caption("Utilities are configured per plant/location and shown in the dashboard and utility views.")
+    current_user = _current_admin()
+
+    if st.button("+ Add Utility", type="primary", key="open_utility_form"):
+        st.session_state["show_utility_form"] = True
+
+    if st.session_state.get("show_utility_form", False):
+        with st.container(border=True):
+            st.markdown("#### Add Utility")
+            plant_options = {
+                str(row["name"]): int(row["id"])
+                for _, row in snapshot["plants"].iterrows()
+                if pd.notna(row.get("name")) and pd.notna(row.get("id"))
+            }
+            location_options = {
+                str(row["name"]): int(row["id"])
+                for _, row in snapshot["locations"].iterrows()
+                if pd.notna(row.get("name")) and pd.notna(row.get("id"))
+            }
+            if not plant_options or not location_options:
+                st.error("Utilities cannot be created until at least one plant and one location exist.")
+            else:
+                form_left, form_right = st.columns(2)
+                with form_left:
+                    new_code = st.text_input("Utility Code", key="new_utility_code")
+                    new_name = st.text_input("Utility Name", key="new_utility_name")
+                    new_type = st.text_input("Utility Type", key="new_utility_type")
+                with form_right:
+                    new_unit = st.text_input("Unit", value="unit", key="new_utility_unit")
+                    selected_plant = st.selectbox("Plant", list(plant_options), key="new_utility_plant")
+                    selected_location = st.selectbox("Location", list(location_options), key="new_utility_location")
+                if st.button("Create Utility", type="primary", key="create_utility"):
+                    try:
+                        add_utility(
+                            current_user,
+                            new_code,
+                            new_name,
+                            new_type,
+                            new_unit,
+                            plant_options[selected_plant],
+                            location_options[selected_location],
+                        )
+                        st.session_state["show_utility_form"] = False
+                        st.success("Utility created successfully.")
+                        st.rerun()
+                    except (PermissionError, ValueError) as exc:
+                        st.error(str(exc))
+                    except Exception as exc:
+                        st.error(f"The utility could not be created because of a database error: {exc}")
+                if st.button("Cancel", key="cancel_utility_form"):
+                    st.session_state["show_utility_form"] = False
+                    st.rerun()
+
+    utilities = snapshot.get("utilities", pd.DataFrame())
+    if utilities.empty:
+        st.info("No utilities are configured in PostgreSQL.")
+        return
+
+    filter_left, filter_right = st.columns(2)
+    with filter_left:
+        search = st.text_input("Search utilities", key="utility_search")
+    with filter_right:
+        type_filter = st.selectbox(
+            "Type", ["All"] + sorted(utilities["type"].dropna().astype(str).unique().tolist()),
+            key="utility_type_filter",
+        )
+
+    filtered = utilities.copy()
+    if search.strip():
+        needle = search.strip().lower()
+        filtered = filtered[
+            filtered[["code", "name", "type", "plant", "location"]]
+            .fillna("")
+            .astype(str)
+            .apply(lambda row: row.str.lower().str.contains(needle).any(), axis=1)
+        ]
+    if type_filter != "All":
+        filtered = filtered[filtered["type"].astype(str) == type_filter]
+
+    if filtered.empty:
+        st.info("No utilities match the selected filters.")
+        return
+
+    display = filtered.rename(columns={"code": "Code", "name": "Name", "type": "Type", "unit": "Unit", "plant": "Plant", "location": "Location"})
+    display["Status"] = display["active"].map(lambda value: _badge("Active" if bool(value) else "Inactive"))
+    st.write(display[["Code", "Name", "Type", "Unit", "Plant", "Location", "Status"]].to_html(escape=False, index=False), unsafe_allow_html=True)
+
+    selected_id = int(st.selectbox("Utility to manage", filtered["id"].astype(int).tolist(), key="managed_utility"))
+    selected = filtered[filtered["id"] == selected_id].iloc[0]
+
+    st.markdown("#### Edit Utility")
+    plant_options = {
+        str(row["name"]): int(row["id"])
+        for _, row in snapshot["plants"].iterrows()
+        if pd.notna(row.get("name")) and pd.notna(row.get("id"))
+    }
+    location_options = {
+        str(row["name"]): int(row["id"])
+        for _, row in snapshot["locations"].iterrows()
+        if pd.notna(row.get("name")) and pd.notna(row.get("id"))
+    }
+    plant_names = list(plant_options) or [str(selected.get("plant") or "")]
+    location_names = list(location_options) or [str(selected.get("location") or "")]
+    current_plant = str(selected.get("plant") or plant_names[0])
+    current_location = str(selected.get("location") or location_names[0])
+    if current_plant not in plant_names:
+        plant_names.insert(0, current_plant)
+    if current_location not in location_names:
+        location_names.insert(0, current_location)
+
+    edit_left, edit_right = st.columns(2)
+    with edit_left:
+        edit_code = st.text_input("Utility Code", value=str(selected["code"]), key=f"edit_utility_code_{selected_id}")
+        edit_name = st.text_input("Utility Name", value=str(selected["name"]), key=f"edit_utility_name_{selected_id}")
+        edit_type = st.text_input("Utility Type", value=str(selected["type"]), key=f"edit_utility_type_{selected_id}")
+    with edit_right:
+        edit_unit = st.text_input("Unit", value=str(selected["unit"]), key=f"edit_utility_unit_{selected_id}")
+        edit_plant = st.selectbox("Plant", plant_names, index=plant_names.index(current_plant), key=f"edit_utility_plant_{selected_id}")
+        edit_location = st.selectbox("Location", location_names, index=location_names.index(current_location), key=f"edit_utility_location_{selected_id}")
+
+    if st.button("Save Utility Changes", type="primary", key=f"save_utility_{selected_id}"):
+        try:
+            update_utility(
+                current_user,
+                selected_id,
+                edit_code,
+                edit_name,
+                edit_type,
+                edit_unit,
+                plant_options[edit_plant],
+                location_options[edit_location],
+            )
+            st.success("Utility updated successfully.")
+            st.rerun()
+        except (PermissionError, ValueError) as exc:
+            st.error(str(exc))
+        except Exception:
+            st.error("The utility could not be updated because of a database error.")
+
+    action_col, confirm_col = st.columns([1, 2])
+    with action_col:
+        toggle_label = "Deactivate Utility" if bool(selected["active"]) else "Activate Utility"
+        if st.button(toggle_label, key=f"toggle_utility_{selected_id}"):
+            try:
+                set_utility_active(current_user, selected_id, not bool(selected["active"]))
+                st.success(f"Utility {selected['name']} is now {'de' if bool(selected['active']) else 'act'}ivated.")
+                st.rerun()
+            except (PermissionError, ValueError) as exc:
+                st.error(str(exc))
+            except Exception:
+                st.error("The utility status could not be changed because of a database error.")
+    with confirm_col:
+        confirm_delete = st.checkbox("Confirm deletion", key=f"confirm_delete_utility_{selected_id}")
+        if st.button("Delete Utility", key=f"delete_utility_{selected_id}", disabled=not confirm_delete):
+            try:
+                delete_utility(current_user, selected_id)
+                st.success("Utility deleted successfully.")
+                st.rerun()
+            except (PermissionError, ValueError) as exc:
+                st.error(str(exc))
+            except Exception:
+                st.error("The utility could not be deleted because of a database error.")
 
 
 def _render_locations(snapshot: dict) -> None:
@@ -808,6 +979,8 @@ def render_admin_control_center() -> None:
         _render_overview(snapshot)
     elif admin_page == "Manage Locations":
         _render_locations(snapshot)
+    elif admin_page == "Manage Utilities":
+        _render_utilities(snapshot)
     elif admin_page == "Manage Users":
         _render_users(snapshot)
     elif admin_page == "Applications & Access":

@@ -164,3 +164,157 @@ ALTER TABLE ONLY common.production_line
 
 \unrestrict 0Eq4RKaczXwZPBGBm4dXNQS6clOR7Cu0Ua1UpXLvKoqtxiins4fN5ejAyoQeRrV
 
+-- Application schema required by the current login and admin services.
+SET search_path = public;
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+CREATE SCHEMA IF NOT EXISTS platform;
+
+CREATE TABLE IF NOT EXISTS platform.plants (
+    plant_id SERIAL PRIMARY KEY,
+    plant_name TEXT NOT NULL UNIQUE
+);
+CREATE TABLE IF NOT EXISTS platform.locations (
+    location_id SERIAL PRIMARY KEY,
+    location_code TEXT NOT NULL UNIQUE,
+    location_name TEXT NOT NULL UNIQUE,
+    plant_id INTEGER NOT NULL REFERENCES platform.plants(plant_id),
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS platform.user_types (
+    user_type_id SERIAL PRIMARY KEY,
+    type_code TEXT NOT NULL UNIQUE
+);
+CREATE TABLE IF NOT EXISTS platform.applications (
+    application_id SERIAL PRIMARY KEY,
+    application_code TEXT NOT NULL UNIQUE,
+    application_name TEXT NOT NULL,
+    base_route TEXT NOT NULL DEFAULT '/',
+    is_active BOOLEAN NOT NULL DEFAULT TRUE
+);
+CREATE TABLE IF NOT EXISTS platform.users (
+    user_id SERIAL PRIMARY KEY,
+    employee_id TEXT NOT NULL UNIQUE,
+    username TEXT NOT NULL UNIQUE,
+    full_name TEXT NOT NULL,
+    email TEXT NOT NULL UNIQUE,
+    password_hash TEXT NOT NULL,
+    user_type_id INTEGER NOT NULL REFERENCES platform.user_types(user_type_id),
+    plant_id INTEGER NOT NULL REFERENCES platform.plants(plant_id),
+    location_id INTEGER NOT NULL REFERENCES platform.locations(location_id),
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS platform.user_applications (
+    user_id INTEGER NOT NULL REFERENCES platform.users(user_id) ON DELETE CASCADE,
+    application_id INTEGER NOT NULL REFERENCES platform.applications(application_id) ON DELETE CASCADE,
+    is_default BOOLEAN NOT NULL DEFAULT FALSE,
+    PRIMARY KEY (user_id, application_id)
+);
+
+INSERT INTO platform.plants (plant_name)
+VALUES ('TATA POWER SOLAR UNIT-1'), ('TATA POWER SOLAR UNIT-2')
+ON CONFLICT (plant_name) DO NOTHING;
+INSERT INTO platform.locations (location_code, location_name, plant_id)
+SELECT 'TATA-SOLAR-UNIT-1',
+       '78, Hosur Rd, Suryanagar Phase I, Electronic City, Doddathoguru, Karnataka 560100',
+       plant_id
+FROM platform.plants
+WHERE plant_name = 'TATA POWER SOLAR UNIT-1'
+ON CONFLICT (location_code) DO NOTHING;
+INSERT INTO platform.locations (location_code, location_name, plant_id)
+SELECT 'TATA-SOLAR-UNIT-2',
+       'Electronic City Rd, Phase II, Electronic City, Konappana Agrahara, Karnataka 560100',
+       plant_id
+FROM platform.plants
+WHERE plant_name = 'TATA POWER SOLAR UNIT-2'
+ON CONFLICT (location_code) DO NOTHING;
+INSERT INTO platform.user_types (type_code) VALUES ('ADMIN'), ('ANALYST')
+ON CONFLICT (type_code) DO NOTHING;
+INSERT INTO platform.applications (application_code, application_name, base_route)
+VALUES ('ADMIN', 'Admin Control Center', '/admin'),
+       ('UTILITY', 'Utility', '/utility'),
+       ('SIMULATION', 'Simulation', '/simulation'),
+       ('EL_DATA', 'EL Data', '/el-data')
+ON CONFLICT (application_code) DO NOTHING;
+
+INSERT INTO platform.users
+    (employee_id, username, full_name, email, password_hash, user_type_id, plant_id, location_id)
+SELECT 'DEMO-ADMIN', 'admin', 'Demo Administrator', 'admin@localhost',
+       crypt('admin', gen_salt('bf')), ut.user_type_id, p.plant_id, l.location_id
+FROM platform.user_types ut, platform.plants p, platform.locations l
+WHERE ut.type_code = 'ADMIN' AND p.plant_name = 'TATA POWER SOLAR UNIT-1'
+    AND l.location_name = '78, Hosur Rd, Suryanagar Phase I, Electronic City, Doddathoguru, Karnataka 560100'
+ON CONFLICT (username) DO NOTHING;
+INSERT INTO platform.users
+    (employee_id, username, full_name, email, password_hash, user_type_id, plant_id, location_id)
+SELECT 'DEMO-USER', 'demo', 'Demo User', 'demo@localhost',
+       crypt('demo', gen_salt('bf')), ut.user_type_id, p.plant_id, l.location_id
+FROM platform.user_types ut, platform.plants p, platform.locations l
+WHERE ut.type_code = 'ANALYST' AND p.plant_name = 'TATA POWER SOLAR UNIT-1'
+    AND l.location_name = '78, Hosur Rd, Suryanagar Phase I, Electronic City, Doddathoguru, Karnataka 560100'
+ON CONFLICT (username) DO NOTHING;
+INSERT INTO platform.user_applications (user_id, application_id, is_default)
+SELECT u.user_id, a.application_id, TRUE FROM platform.users u, platform.applications a
+WHERE u.username = 'admin' AND a.application_code = 'ADMIN' ON CONFLICT DO NOTHING;
+INSERT INTO platform.user_applications (user_id, application_id, is_default)
+SELECT u.user_id, a.application_id, TRUE FROM platform.users u, platform.applications a
+WHERE u.username = 'demo' AND a.application_code = 'UTILITY' ON CONFLICT DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS public.solar_locations (
+    location_id INTEGER PRIMARY KEY,
+    location_name TEXT NOT NULL UNIQUE,
+    site_location TEXT DEFAULT '78, Hosur Rd, Suryanagar Phase I, Electronic City, Doddathoguru, Karnataka 560100',
+    plant_name TEXT DEFAULT 'TATA POWER SOLAR UNIT-1',
+    line_name TEXT DEFAULT 'Vega',
+    created_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    modified_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    created_by TEXT DEFAULT 'system',
+    modified_by TEXT DEFAULT 'system'
+);
+CREATE TABLE IF NOT EXISTS public.solar_daily_summary (
+    summary_id SERIAL PRIMARY KEY,
+    location_id INTEGER NOT NULL REFERENCES public.solar_locations(location_id),
+    log_date TEXT NOT NULL,
+    generation_kwh REAL NOT NULL,
+    site_location TEXT DEFAULT '78, Hosur Rd, Suryanagar Phase I, Electronic City, Doddathoguru, Karnataka 560100',
+    plant_name TEXT DEFAULT 'TATA POWER SOLAR UNIT-1',
+    line_name TEXT DEFAULT 'Vega',
+    UNIQUE (location_id, log_date)
+);
+CREATE TABLE IF NOT EXISTS public.solar_time_logs (
+    log_id SERIAL PRIMARY KEY,
+    location_id INTEGER NOT NULL REFERENCES public.solar_locations(location_id),
+    log_date TEXT NOT NULL,
+    log_timestamp TEXT NOT NULL,
+    kwh REAL, kvah REAL, kw REAL, kva REAL, current REAL, power_factor REAL,
+    site_location TEXT DEFAULT '78, Hosur Rd, Suryanagar Phase I, Electronic City, Doddathoguru, Karnataka 560100',
+    plant_name TEXT DEFAULT 'TATA POWER SOLAR UNIT-1',
+    line_name TEXT DEFAULT 'Vega',
+    UNIQUE (location_id, log_date, log_timestamp)
+);
+
+ALTER TABLE public.solar_locations
+    ALTER COLUMN site_location SET DEFAULT '78, Hosur Rd, Suryanagar Phase I, Electronic City, Doddathoguru, Karnataka 560100',
+    ALTER COLUMN plant_name SET DEFAULT 'TATA POWER SOLAR UNIT-1';
+ALTER TABLE public.solar_daily_summary
+    ALTER COLUMN site_location SET DEFAULT '78, Hosur Rd, Suryanagar Phase I, Electronic City, Doddathoguru, Karnataka 560100',
+    ALTER COLUMN plant_name SET DEFAULT 'TATA POWER SOLAR UNIT-1';
+ALTER TABLE public.solar_time_logs
+    ALTER COLUMN site_location SET DEFAULT '78, Hosur Rd, Suryanagar Phase I, Electronic City, Doddathoguru, Karnataka 560100',
+    ALTER COLUMN plant_name SET DEFAULT 'TATA POWER SOLAR UNIT-1';
+
+CREATE TABLE IF NOT EXISTS platform.utilities (
+    utility_id SERIAL PRIMARY KEY,
+    utility_code TEXT NOT NULL UNIQUE,
+    utility_name TEXT NOT NULL,
+    utility_type TEXT NOT NULL,
+    unit TEXT NOT NULL DEFAULT 'unit',
+    plant_id INTEGER NOT NULL REFERENCES platform.plants(plant_id),
+    location_id INTEGER NOT NULL REFERENCES platform.locations(location_id),
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+

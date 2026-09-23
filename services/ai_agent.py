@@ -80,6 +80,45 @@ def _check_ollama_health():
         raise OllamaUnavailableError(OLLAMA_OFFLINE_MESSAGE) from error
 
 
+def get_ai_status():
+    """Return the current status of the local AI service for the UI."""
+    try:
+        _check_ollama_health()
+        return {
+            "available": True,
+            "message": f"AI diagnostic service is available using model {OLLAMA_MODEL}.",
+        }
+    except OllamaUnavailableError as exc:
+        return {
+            "available": False,
+            "message": str(exc),
+        }
+    except Exception as exc:
+        return {
+            "available": False,
+            "message": f"AI diagnostic service is unavailable: {exc}",
+        }
+
+
+def build_ai_context(named_dataframes):
+    """Build a compact textual summary for AI analysis from DataFrames."""
+    if not named_dataframes:
+        return "No utility data is available for analysis."
+
+    sections = []
+    for name, dataframe in named_dataframes.items():
+        if not isinstance(dataframe, pd.DataFrame) or dataframe.empty:
+            continue
+
+        preview = dataframe.head(25).copy()
+        sections.append(f"DATASET: {name}")
+        sections.append(f"Rows: {len(dataframe)} | Columns: {', '.join(map(str, dataframe.columns[:20]))}")
+        sections.append(preview.to_string(index=False))
+        sections.append("---")
+
+    return "\n".join(sections) if sections else "No utility data is available for analysis."
+
+
 # =========================================================
 # EXTRACT DATASET FROM CONTEXT
 #
@@ -755,7 +794,16 @@ def _question_label_column(dataframe, entity):
         "location": ("location", "location_name", "source", "unit"),
     }
     candidates = preferred.get(entity, ("location", "location_name", "source", "utility", "transformer", "unit"))
-    return next((column for column in candidates if column in dataframe.columns), None)
+    selected = next((column for column in candidates if column in dataframe.columns), None)
+    if selected:
+        return selected
+    return next(
+        (
+            column for column in dataframe.columns
+            if pd.api.types.is_string_dtype(dataframe[column])
+        ),
+        None,
+    )
 
 
 def _answer_matches_route(answer, route):
@@ -794,6 +842,19 @@ def _question_specific_answer(question, dataframe, conversation_context=""):
         None,
     )
     if measure_column is None:
+        question_words = set(re.findall(r"[a-z0-9_]+", question_text))
+        numeric_columns = [
+            column for column in dataframe.columns
+            if pd.to_numeric(dataframe[column], errors="coerce").notna().any()
+        ]
+        measure_column = next(
+            (
+                column for column in numeric_columns
+                if set(re.findall(r"[a-z0-9_]+", str(column).lower())) & question_words
+            ),
+            None,
+        )
+    if measure_column is None:
         return None
     working = _filter_question_period(dataframe, route)
     working[measure_column] = pd.to_numeric(working[measure_column], errors="coerce")
@@ -814,6 +875,27 @@ def _question_specific_answer(question, dataframe, conversation_context=""):
 
     grouped = working.groupby(label_column)[measure_column].sum().sort_values(ascending=False) if label_column else None
     intent = route["intent"]
+
+    # Direct lookups are answered from the matching uploaded/database row,
+    # rather than asking the language model to infer a value from a preview.
+    if label_column and any(term in question_text for term in ("what is", "value", "reading", "how much", "show")):
+        matching_labels = [
+            label for label in working[label_column].dropna().astype(str).unique()
+            if label.lower() in question_text
+        ]
+        if matching_labels:
+            selected_rows = working[working[label_column].astype(str).isin(matching_labels)]
+            numeric_values = selected_rows.select_dtypes(include="number").columns
+            if len(numeric_values):
+                details = "; ".join(
+                    f"{column.replace('_', ' ')}: {selected_rows.iloc[0][column]:,.2f}"
+                    for column in numeric_values
+                    if pd.notna(selected_rows.iloc[0][column])
+                )
+                return (
+                    f"## Answer\n\n**{matching_labels[0]}**: {details}.\n\n"
+                    f"### 📚 Data Evidence\n\nRecords analyzed: **{len(selected_rows)}**"
+                )
 
     if label_column and intent in {"highest_consumption", "lowest_consumption"}:
         ordered = grouped if intent == "highest_consumption" else grouped.sort_values()

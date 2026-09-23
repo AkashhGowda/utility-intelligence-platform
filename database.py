@@ -1,16 +1,33 @@
 import os
+import json
 
 import psycopg2
-from psycopg2.extras import execute_values
+import pandas as pd
+from psycopg2.extras import Json, execute_values
+
+
+def _setting(name, default=None):
+    value = os.getenv(name)
+    if value:
+        return value
+    try:
+        import streamlit as st
+        return st.secrets.get(name, default)
+    except Exception:
+        return default
 
 
 def get_connection():
+    database_url = _setting("DATABASE_URL")
+    if database_url:
+        return psycopg2.connect(database_url)
+
     return psycopg2.connect(
-        host=os.getenv("DB_HOST", "127.0.0.1"),
-        port=os.getenv("DB_PORT", "5432"),
-        database=os.getenv("DB_NAME", "solar_monitoring"),
-        user=os.getenv("DB_USER", "postgres"),
-        password=os.getenv("DB_PASSWORD") or "admin123",
+        host=_setting("DB_HOST", "127.0.0.1"),
+        port=_setting("DB_PORT", "5432"),
+        database=_setting("DB_NAME", "solar_monitoring"),
+        user=_setting("DB_USER", "postgres"),
+        password=_setting("DB_PASSWORD", ""),
     )
 
 
@@ -87,6 +104,25 @@ def create_dashboard_tables():
                         health_indicator DOUBLE PRECISION,
                         mtd_kwh DOUBLE PRECISION
                     );
+                    CREATE TABLE IF NOT EXISTS dashboard_air (
+                        utility TEXT NOT NULL,
+                        avg_flow_m3_hr DOUBLE PRECISION,
+                        total_m3 DOUBLE PRECISION
+                    );
+                    CREATE TABLE IF NOT EXISTS dashboard_environment (
+                        location TEXT NOT NULL,
+                        humidity_avg DOUBLE PRECISION,
+                        humidity_max DOUBLE PRECISION,
+                        temperature_avg DOUBLE PRECISION,
+                        temperature_max DOUBLE PRECISION,
+                        humidity_target DOUBLE PRECISION,
+                        temperature_target DOUBLE PRECISION
+                    );
+                    CREATE TABLE IF NOT EXISTS dashboard_pf (
+                        row_number INTEGER,
+                        column_number INTEGER,
+                        value DOUBLE PRECISION
+                    );
                     CREATE TABLE IF NOT EXISTS dashboard_sources (
                         source_name TEXT NOT NULL,
                         filename TEXT NOT NULL
@@ -94,6 +130,171 @@ def create_dashboard_tables():
                 """)
     finally:
         conn.close()
+
+
+def load_dashboard_tables():
+    """Return the live PostgreSQL dashboard tables used by the major panels."""
+    create_dashboard_tables()
+    conn = get_connection()
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT location, daily_kwh, mtd_kwh FROM dashboard_energy")
+            energy = cursor.fetchall()
+            cursor.execute("SELECT source, daily_kwh, mtd_kwh FROM dashboard_solar")
+            solar = cursor.fetchall()
+            cursor.execute(
+                "SELECT transformer, sensor_id, daily_kwh, loading_percent, health_indicator, mtd_kwh FROM dashboard_transformers"
+            )
+            transformers = cursor.fetchall()
+            cursor.execute("SELECT utility, avg_flow_m3_hr, total_m3 FROM dashboard_air")
+            air = cursor.fetchall()
+            cursor.execute(
+                "SELECT location, humidity_avg, humidity_max, temperature_avg, temperature_max, humidity_target, temperature_target FROM dashboard_environment"
+            )
+            environment = cursor.fetchall()
+            cursor.execute("SELECT row_number, column_number, value FROM dashboard_pf")
+            pf = cursor.fetchall()
+            cursor.execute("SELECT source_name, filename FROM dashboard_sources")
+            sources = cursor.fetchall()
+    finally:
+        conn.close()
+
+    return {
+        "energy": __import__("pandas").DataFrame(energy, columns=["location", "daily_kwh", "mtd_kwh"]),
+        "solar": __import__("pandas").DataFrame(solar, columns=["source", "daily_kwh", "mtd_kwh"]),
+        "transformers": __import__("pandas").DataFrame(
+            transformers,
+            columns=[
+                "transformer", "sensor_id", "daily_kwh", "loading_percent", "health_indicator", "mtd_kwh",
+            ],
+        ),
+        "air": __import__("pandas").DataFrame(air, columns=["utility", "avg_flow_m3_hr", "total_m3"]),
+        "environment": __import__("pandas").DataFrame(
+            environment,
+            columns=[
+                "location",
+                "humidity_avg",
+                "humidity_max",
+                "temperature_avg",
+                "temperature_max",
+                "humidity_target",
+                "temperature_target",
+            ],
+        ),
+        "pf": __import__("pandas").DataFrame(pf, columns=["row_number", "column_number", "value"]),
+        "sources": sources,
+        "data_source": "PostgreSQL dashboard tables",
+        "energy_history": __import__("pandas").DataFrame(),
+    }
+
+
+def empty_dashboard_tables():
+    """Return the same shape as live dashboard data when PostgreSQL is unavailable."""
+    pd = __import__("pandas")
+    return {
+        "energy": pd.DataFrame(columns=["location", "daily_kwh", "mtd_kwh"]),
+        "solar": pd.DataFrame(columns=["source", "daily_kwh", "mtd_kwh"]),
+        "transformers": pd.DataFrame(
+            columns=[
+                "transformer", "sensor_id", "daily_kwh", "loading_percent",
+                "health_indicator", "mtd_kwh",
+            ]
+        ),
+        "air": pd.DataFrame(columns=["utility", "avg_flow_m3_hr", "total_m3"]),
+        "environment": pd.DataFrame(
+            columns=[
+                "location", "humidity_avg", "humidity_max", "temperature_avg",
+                "temperature_max", "humidity_target", "temperature_target",
+            ]
+        ),
+        "pf": pd.DataFrame(columns=["row_number", "column_number", "value"]),
+        "sources": [],
+        "data_source": "PostgreSQL dashboard tables",
+        "energy_history": pd.DataFrame(),
+    }
+
+
+def create_uploaded_data_table():
+    """Create durable storage for user-uploaded datasets used by reports and AI."""
+    conn = get_connection()
+    try:
+        with conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS dashboard_uploaded_data (
+                        upload_id BIGSERIAL PRIMARY KEY,
+                        filename TEXT NOT NULL,
+                        sheet_name TEXT NOT NULL DEFAULT 'Dataset',
+                        row_number INTEGER NOT NULL,
+                        row_data JSONB NOT NULL,
+                        uploaded_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                    )
+                    """
+                )
+    finally:
+        conn.close()
+
+
+def save_uploaded_dataset(dataframe, filename, sheet_name="Dataset"):
+    """Persist every row of an uploaded dataset in PostgreSQL."""
+    if dataframe is None or dataframe.empty:
+        return 0
+    create_uploaded_data_table()
+    rows = []
+    for row_number, row in enumerate(dataframe.to_dict(orient="records"), start=1):
+        normalized = {
+            str(key): (None if pd.isna(value) else value)
+            for key, value in row.items()
+        }
+        rows.append(
+            (
+                str(filename),
+                str(sheet_name),
+                row_number,
+                Json(normalized, dumps=lambda value: json.dumps(value, default=str)),
+            )
+        )
+
+    conn = get_connection()
+    try:
+        with conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    "DELETE FROM dashboard_uploaded_data WHERE filename = %s AND sheet_name = %s",
+                    (str(filename), str(sheet_name)),
+                )
+                execute_values(
+                    cursor,
+                    "INSERT INTO dashboard_uploaded_data (filename, sheet_name, row_number, row_data) VALUES %s",
+                    rows,
+                )
+        return len(rows)
+    finally:
+        conn.close()
+
+
+def load_uploaded_datasets():
+    """Load all durable user uploads as named DataFrames for AI and reports."""
+    create_uploaded_data_table()
+    conn = get_connection()
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                "SELECT filename, sheet_name, row_data FROM dashboard_uploaded_data ORDER BY uploaded_at, upload_id"
+            )
+            rows = cursor.fetchall()
+    finally:
+        conn.close()
+
+    datasets = {}
+    for filename, sheet_name, row_data in rows:
+        key = f"Upload: {filename} [{sheet_name}]"
+        datasets.setdefault(key, []).append(row_data)
+    return {
+        key: pd.DataFrame(records)
+        for key, records in datasets.items()
+    }
 
 
 def replace_dashboard_snapshot(data):
