@@ -28,10 +28,13 @@ def get_connection():
             "Streamlit app secrets."
         )
 
-    return psycopg2.connect(
+    connection = psycopg2.connect(
         host=_setting("DB_HOST", "127.0.0.1"),
         database=_setting("DB_NAME", "solar_monitoring"),
         user=_setting("DB_USER", "postgres"),
         password=_setting("DB_PASSWORD", ""),
         port=_setting("DB_PORT", "5432")
     )
+    with connection.cursor() as cursor:
+        cursor.execute("SET search_path TO public, extensions")
+    return connection

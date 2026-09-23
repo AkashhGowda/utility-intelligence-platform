@@ -210,7 +210,7 @@ END $$;
 
 
 -- Application schema required by the current login and admin services.
-SET search_path = public;
+SET search_path = public, extensions;
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 CREATE SCHEMA IF NOT EXISTS platform;
 
