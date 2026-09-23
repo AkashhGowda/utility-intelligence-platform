@@ -119,7 +119,7 @@ DO $$
 BEGIN
     IF NOT EXISTS (
         SELECT 1 FROM pg_constraint
-        WHERE conname = 'pk_location'
+                WHERE contype = 'p'
           AND conrelid = 'common.location'::regclass
     ) THEN
         ALTER TABLE ONLY common.location
@@ -137,7 +137,7 @@ DO $$
 BEGIN
     IF NOT EXISTS (
         SELECT 1 FROM pg_constraint
-        WHERE conname = 'pk_plant'
+                WHERE contype = 'p'
           AND conrelid = 'common.plant'::regclass
     ) THEN
         ALTER TABLE ONLY common.plant
@@ -155,7 +155,7 @@ DO $$
 BEGIN
     IF NOT EXISTS (
         SELECT 1 FROM pg_constraint
-        WHERE conname = 'pk_production_line'
+                WHERE contype = 'p'
           AND conrelid = 'common.production_line'::regclass
     ) THEN
         ALTER TABLE ONLY common.production_line
@@ -173,8 +173,9 @@ DO $$
 BEGIN
     IF NOT EXISTS (
         SELECT 1 FROM pg_constraint
-        WHERE conname = 'fk_plant_location'
+                WHERE contype = 'f'
           AND conrelid = 'common.plant'::regclass
+                    AND confrelid = 'common.location'::regclass
     ) THEN
         ALTER TABLE ONLY common.plant
             ADD CONSTRAINT fk_plant_location FOREIGN KEY (location_id) REFERENCES common.location(location_id);
@@ -191,8 +192,9 @@ DO $$
 BEGIN
     IF NOT EXISTS (
         SELECT 1 FROM pg_constraint
-        WHERE conname = 'fk_production_line_plant'
+                WHERE contype = 'f'
           AND conrelid = 'common.production_line'::regclass
+                    AND confrelid = 'common.plant'::regclass
     ) THEN
         ALTER TABLE ONLY common.production_line
             ADD CONSTRAINT fk_production_line_plant FOREIGN KEY (plant_id) REFERENCES common.plant(plant_id);
